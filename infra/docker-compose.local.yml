@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: duartefilms-postgres-local
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: duartefilms
+      POSTGRES_PASSWORD: duartefilms_local_password
+      POSTGRES_DB: duartefilms_erp
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - duartefilms_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U duartefilms -d duartefilms_erp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: duartefilms-redis-local
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6308:6379"
+    volumes:
+      - duartefilms_redis_data:/data
+
+volumes:
+  duartefilms_pg_data:
+  duartefilms_redis_data:
