@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Car, Mail, MessageCircle, Pencil, Plus, Search, UserRound, X } from 'lucide-react';
+import { Car, ClipboardList, Mail, MessageCircle, Pencil, Plus, Search, UserRound, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { Client } from '../types';
 
@@ -34,6 +35,7 @@ function whatsappLink(phone: string) {
 }
 
 export function Clients() {
+  const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>([]);
   const [form, setForm] = useState<ClientForm>(emptyForm);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -238,6 +240,16 @@ export function Clients() {
                   <span>Nenhum veículo vinculado ainda</span>
                 </div>
               )}
+
+              <div className="clientQuickActions">
+                <button
+                  type="button"
+                  className="quoteShortcutButton"
+                  onClick={() => navigate(`/orcamentos?clientId=${client.id}`)}
+                >
+                  <ClipboardList size={16} /> Criar orçamento
+                </button>
+              </div>
 
               {client.notes ? <p className="clientNotes">{client.notes}</p> : null}
             </article>
