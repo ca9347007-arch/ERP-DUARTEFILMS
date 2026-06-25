@@ -686,3 +686,373 @@ p { color: var(--df-muted); line-height: 1.55; }
   .stockItem, .appointmentItem { align-items: flex-start; display: grid; }
   .stockItem b { text-align: left; }
 }
+
+/* Dashboard V2 — área premium, exportação e gavetas laterais */
+.dashActions {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.exportMenu {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+.exportButton {
+  min-height: 58px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.exportDropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 230px;
+  padding: 8px;
+  border-radius: 18px;
+  border: 1px solid rgba(212,175,55,.20);
+  background: rgba(18,18,18,.96);
+  box-shadow: 0 24px 60px rgba(0,0,0,.46);
+  backdrop-filter: blur(18px);
+  opacity: 0;
+  transform: translateY(-8px) scale(.98);
+  pointer-events: none;
+  transition: all .22s ease;
+  z-index: 20;
+}
+.exportMenu:hover .exportDropdown,
+.exportMenu:focus-within .exportDropdown {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+.exportDropdown button {
+  width: 100%;
+  border: 0;
+  border-radius: 13px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--df-text);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 850;
+  text-align: left;
+}
+.exportDropdown button:hover {
+  background: rgba(212,175,55,.10);
+  color: var(--df-gold-light);
+}
+.v2DashGrid { grid-template-columns: minmax(0, 1.65fr) minmax(360px, .8fr); }
+.premiumAreaCard {
+  overflow: hidden;
+  position: relative;
+}
+.premiumAreaCard::after {
+  content: '';
+  position: absolute;
+  inset: auto -8% -26% 42%;
+  height: 240px;
+  background: radial-gradient(circle, rgba(212,175,55,.14), transparent 62%);
+  pointer-events: none;
+}
+.balanceStrip button {
+  border: 1px solid rgba(255,255,255,.065);
+  border-radius: 18px;
+  background: rgba(255,255,255,.035);
+  color: inherit;
+  text-align: left;
+  padding: 14px;
+  cursor: pointer;
+  transition: all .22s ease;
+}
+.balanceStrip button:hover {
+  transform: translateY(-2px);
+  border-color: rgba(212,175,55,.28);
+  background: rgba(212,175,55,.07);
+}
+.areaChart {
+  position: relative;
+  min-height: 244px;
+  margin-top: 20px;
+  border-radius: 26px;
+  border: 1px solid rgba(255,255,255,.06);
+  background:
+    linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px) 0 0 / 100% 40px,
+    radial-gradient(circle at 20% 0, rgba(212,175,55,.12), transparent 34%),
+    rgba(0,0,0,.16);
+  overflow: hidden;
+}
+.areaChart svg {
+  position: absolute;
+  inset: 14px 16px 54px;
+  width: calc(100% - 32px);
+  height: calc(100% - 70px);
+  filter: drop-shadow(0 0 14px rgba(212,175,55,.18));
+}
+.areaChartGrid {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 6px;
+}
+.areaMonth {
+  border: 1px solid transparent;
+  border-radius: 13px;
+  padding: 7px 4px;
+  background: transparent;
+  color: var(--df-muted);
+  display: grid;
+  gap: 3px;
+  cursor: default;
+}
+.areaMonth span {
+  font-size: 11px;
+  font-weight: 900;
+}
+.areaMonth strong {
+  font-size: 10px;
+  color: rgba(255,255,255,.58);
+  font-weight: 900;
+  letter-spacing: -.02em;
+}
+.areaMonth.active {
+  border-color: rgba(212,175,55,.24);
+  background: rgba(212,175,55,.08);
+  color: var(--df-gold-light);
+}
+.areaMonth.active strong { color: var(--df-gold-light); }
+.drawerBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0,0,0,.56);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: flex-end;
+  animation: drawerFade .18s ease both;
+}
+.smartDrawer {
+  width: min(520px, 100vw);
+  height: 100%;
+  overflow-y: auto;
+  border-left: 1px solid rgba(212,175,55,.18);
+  background:
+    radial-gradient(circle at 10% 0, rgba(212,175,55,.14), transparent 34%),
+    linear-gradient(180deg, rgba(30,30,30,.98), rgba(10,10,10,.99));
+  box-shadow: -30px 0 80px rgba(0,0,0,.55);
+  padding: 26px;
+  animation: drawerSlide .25s cubic-bezier(.2,.8,.2,1) both;
+}
+.drawerHeader,
+.drawerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.drawerHeader {
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  margin-bottom: 18px;
+}
+.drawerHeader h2 {
+  margin: 3px 0 0;
+  font-size: 28px;
+  letter-spacing: -.04em;
+}
+.iconButton {
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  background: rgba(255,255,255,.04);
+  color: var(--df-text);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.iconButton:hover {
+  border-color: rgba(212,175,55,.25);
+  color: var(--df-gold-light);
+}
+.drawerHero {
+  padding: 22px;
+  border-radius: 24px;
+  border: 1px solid rgba(255,255,255,.08);
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
+  position: relative;
+  overflow: hidden;
+}
+.drawerHero::after {
+  content: '';
+  position: absolute;
+  inset: auto -20% -40% 30%;
+  height: 160px;
+  background: radial-gradient(circle, rgba(255,255,255,.12), transparent 62%);
+}
+.drawerHero span,
+.drawerHero small {
+  color: var(--df-muted);
+  font-weight: 800;
+  z-index: 1;
+}
+.drawerHero strong {
+  color: var(--df-gold-light);
+  font-size: 42px;
+  line-height: 1;
+  letter-spacing: -.06em;
+  z-index: 1;
+}
+.successHero { background: rgba(34,197,94,.08); border-color: rgba(34,197,94,.20); }
+.dangerHero { background: rgba(248,113,113,.08); border-color: rgba(248,113,113,.20); }
+.drawerSection {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255,255,255,.075);
+}
+.drawerSection h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  letter-spacing: -.02em;
+}
+.drawerCategory,
+.financialLine,
+.drawerBalance div {
+  border: 1px solid rgba(255,255,255,.075);
+  border-radius: 18px;
+  background: rgba(255,255,255,.035);
+  padding: 13px;
+  margin-top: 9px;
+}
+.drawerCategory {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  align-items: center;
+}
+.drawerCategory span { color: var(--df-text); font-weight: 900; }
+.drawerCategory strong { color: var(--df-gold-light); }
+.drawerCategory small { color: var(--df-muted); grid-column: 1 / -1; }
+.financialLine {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+.financialLine strong { color: var(--df-text); }
+.financialLine span,
+.financialLine small,
+.mutedLine {
+  display: block;
+  margin-top: 4px;
+  color: var(--df-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.financialLine b { white-space: nowrap; font-size: 14px; }
+.financialLine.positive b { color: #86efac; }
+.financialLine.negative b { color: #fca5a5; }
+.drawerBalance {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.drawerBalance span {
+  display: block;
+  color: var(--df-muted);
+  font-size: 12px;
+  font-weight: 850;
+  margin-bottom: 4px;
+}
+.drawerBalance strong {
+  color: var(--df-gold-light);
+  font-size: 22px;
+}
+.drawerFooter {
+  position: sticky;
+  bottom: -26px;
+  margin: 22px -26px -26px;
+  padding: 18px 26px;
+  background: linear-gradient(180deg, rgba(12,12,12,.82), rgba(12,12,12,.98));
+  border-top: 1px solid rgba(255,255,255,.08);
+  backdrop-filter: blur(16px);
+}
+.ghostButton {
+  border: 1px solid rgba(255,255,255,.09);
+  background: rgba(255,255,255,.04);
+  color: var(--df-text);
+  border-radius: 14px;
+  padding: 11px 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 850;
+}
+.ghostButton:hover {
+  border-color: rgba(212,175,55,.25);
+  color: var(--df-gold-light);
+}
+@keyframes drawerFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes drawerSlide { from { transform: translateX(36px); opacity: .4; } to { transform: translateX(0); opacity: 1; } }
+@media (max-width: 1200px) {
+  .v2DashGrid { grid-template-columns: 1fr; }
+  .dashActions { width: 100%; justify-content: flex-start; }
+}
+@media (max-width: 760px) {
+  .dashActions { display: grid; grid-template-columns: 1fr; }
+  .exportMenu, .exportButton { width: 100%; }
+  .exportDropdown { left: 0; right: auto; width: 100%; }
+  .areaChart { min-height: 270px; overflow-x: auto; }
+  .areaChart svg { min-width: 620px; }
+  .areaChartGrid { min-width: 620px; }
+  .smartDrawer { padding: 20px; }
+  .drawerFooter { display: grid; grid-template-columns: 1fr; bottom: -20px; margin: 22px -20px -20px; padding: 16px 20px; }
+  .drawerFooter .goldButton, .drawerFooter .ghostButton { width: 100%; justify-content: center; }
+}
+
+/* Dashboard V2 Fix — botões visíveis e cards acionáveis */
+.exportActions {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.exportActions .exportButton {
+  min-height: 58px;
+}
+.cardClickHint {
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(212,175,55,.18);
+  color: var(--df-gold-light);
+  background: rgba(212,175,55,.08);
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+.kpiCard.clickable:focus-visible {
+  outline: 2px solid rgba(251,245,183,.75);
+  outline-offset: 3px;
+}
+.areaMonth { cursor: pointer; }
+@media (max-width: 760px) {
+  .exportActions { width: 100%; display: grid; grid-template-columns: 1fr; }
+}

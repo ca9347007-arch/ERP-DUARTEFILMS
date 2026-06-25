@@ -44,7 +44,7 @@ dashboardRouter.get('/', asyncHandler(async (req, res) => {
   const todayStart = startOfToday();
   const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const [financialEntries, todayAppointments, criticalProducts, clientsCount, quotesCount] = await Promise.all([
+  const [financialEntries, selectedFinancialEntries, todayAppointments, criticalProducts, clientsCount, quotesCount] = await Promise.all([
     prisma.financialEntry.findMany({
       where: {
         companyId,
@@ -52,6 +52,27 @@ dashboardRouter.get('/', asyncHandler(async (req, res) => {
         status: { not: FinancialStatus.CANCELLED }
       },
       select: { type: true, amountCents: true, createdAt: true }
+    }),
+    prisma.financialEntry.findMany({
+      where: {
+        companyId,
+        createdAt: { gte: selectedMonthStart, lt: selectedMonthEnd },
+        status: { not: FinancialStatus.CANCELLED }
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        type: true,
+        description: true,
+        category: true,
+        amountCents: true,
+        status: true,
+        paymentMethod: true,
+        dueDate: true,
+        paidAt: true,
+        createdAt: true,
+        notes: true
+      }
     }),
     prisma.appointment.findMany({
       where: {
@@ -152,6 +173,18 @@ dashboardRouter.get('/', asyncHandler(async (req, res) => {
   const stockWarning = stockInsights.filter((product) => product.status === 'warning').slice(0, 8);
   const marginPct = selected.revenueCents > 0 ? roundPct((selected.netProfitCents / selected.revenueCents) * 100) : 0;
 
+  const categoryMap = new Map<string, { type: FinancialType; category: string; totalCents: number; count: number }>();
+  for (const entry of selectedFinancialEntries) {
+    const key = `${entry.type}:${entry.category}`;
+    const current = categoryMap.get(key) ?? { type: entry.type, category: entry.category, totalCents: 0, count: 0 };
+    current.totalCents += entry.amountCents;
+    current.count += 1;
+    categoryMap.set(key, current);
+  }
+  const financialCategories = Array.from(categoryMap.values())
+    .map((category) => ({ ...category, type: category.type === FinancialType.REVENUE ? 'REVENUE' : 'EXPENSE' }))
+    .sort((a, b) => b.totalCents - a.totalCents);
+
   const insights = [
     selected.netProfitCents >= 0
       ? {
@@ -223,6 +256,11 @@ dashboardRouter.get('/', asyncHandler(async (req, res) => {
       yearToDate
     },
     monthlyFinancial,
+    financialEntries: selectedFinancialEntries.map((entry) => ({
+      ...entry,
+      type: entry.type === FinancialType.REVENUE ? 'REVENUE' : 'EXPENSE'
+    })),
+    financialCategories,
     appointmentsToday: todayAppointments,
     stockCritical,
     stockWarning,

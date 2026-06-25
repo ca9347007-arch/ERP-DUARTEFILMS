@@ -5,11 +5,16 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   CalendarDays,
+  Download,
+  FileSpreadsheet,
+  FileText,
   Package,
+  ReceiptText,
   RefreshCw,
   Sparkles,
   TrendingUp,
-  WalletCards
+  WalletCards,
+  X
 } from 'lucide-react';
 import { api, money } from '../api/client';
 
@@ -21,6 +26,27 @@ type MonthlyFinancial = {
   grossProfitCents: number;
   netProfitCents: number;
   growthPct: number;
+};
+
+type FinancialEntry = {
+  id: string;
+  type: 'REVENUE' | 'EXPENSE';
+  description: string;
+  category: string;
+  amountCents: number;
+  status: string;
+  paymentMethod?: string | null;
+  dueDate?: string | null;
+  paidAt?: string | null;
+  createdAt: string;
+  notes?: string | null;
+};
+
+type FinancialCategory = {
+  type: 'REVENUE' | 'EXPENSE';
+  category: string;
+  totalCents: number;
+  count: number;
 };
 
 type StockInsight = {
@@ -75,11 +101,15 @@ type DashboardData = {
     };
   };
   monthlyFinancial: MonthlyFinancial[];
+  financialEntries: FinancialEntry[];
+  financialCategories: FinancialCategory[];
   appointmentsToday: AppointmentToday[];
   stockCritical: StockInsight[];
   stockWarning: StockInsight[];
   insights: Array<{ severity: 'success' | 'warning' | 'danger'; title: string; message: string }>;
 };
+
+type DrawerMode = 'revenue' | 'expenses' | 'profit' | null;
 
 const MONTHS = [
   { value: 1, label: 'Janeiro' },
@@ -100,6 +130,10 @@ function pct(value: number) {
   return `${value >= 0 ? '+' : ''}${value.toFixed(1).replace('.', ',')}%`;
 }
 
+function date(value: string) {
+  return new Intl.DateTimeFormat('pt-BR').format(new Date(value));
+}
+
 function time(value: string) {
   return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
@@ -111,6 +145,21 @@ function compactMoney(cents: number) {
     notation: Math.abs(cents) >= 10000000 ? 'compact' : 'standard',
     maximumFractionDigits: 0
   }).format(cents / 100);
+}
+
+function statusLabel(status: string) {
+  const labels: Record<string, string> = {
+    PENDING: 'Pendente',
+    RECEIVED: 'Recebido',
+    PAID: 'Pago',
+    OVERDUE: 'Vencido',
+    CANCELLED: 'Cancelado',
+    CONFIRMED: 'Confirmado',
+    IN_SERVICE: 'Em atendimento',
+    FINISHED: 'Finalizado',
+    NO_SHOW: 'Não compareceu'
+  };
+  return labels[status] ?? status;
 }
 
 function MetricCard({
@@ -128,24 +177,203 @@ function MetricCard({
   icon: typeof WalletCards;
   onClick?: () => void;
 }) {
-  const Content = (
-    <>
+  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (!onClick) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onClick();
+    }
+  }
+
+  return (
+    <div
+      className={`kpiCard ${onClick ? 'clickable' : ''} tone-${tone}`}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={handleKeyDown}
+      aria-label={onClick ? `${label}. Abrir detalhamento.` : label}
+    >
       <div className="metricIcon"><Icon size={19} /></div>
       <span>{label}</span>
       <strong>{value}</strong>
       {helper && <small>{helper}</small>}
-    </>
+      {onClick && <em className="cardClickHint">Ver detalhes</em>}
+    </div>
   );
+}
 
-  if (onClick) {
+function FinancialAreaChart({ data, selectedMonth, onSelectMonth }: { data: MonthlyFinancial[]; selectedMonth: number; onSelectMonth: (month: number) => void }) {
+  const maxValue = Math.max(1, ...data.map((item) => item.revenueCents));
+  const points = data.map((item, index) => {
+    const x = data.length === 1 ? 0 : (index / (data.length - 1)) * 100;
+    const y = 94 - (item.revenueCents / maxValue) * 74;
+    return { ...item, x, y };
+  });
+
+  const linePath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+  const areaPath = `${linePath} L 100 100 L 0 100 Z`;
+
+  return (
+    <div className="areaChart" aria-label="Receita anual em gráfico de área">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img">
+        <defs>
+          <linearGradient id="goldArea" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#FBF5B7" stopOpacity="0.36" />
+            <stop offset="55%" stopColor="#D4AF37" stopOpacity="0.13" />
+            <stop offset="100%" stopColor="#D4AF37" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="goldStroke" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#BF953F" />
+            <stop offset="35%" stopColor="#FCF6BA" />
+            <stop offset="70%" stopColor="#D4AF37" />
+            <stop offset="100%" stopColor="#AA771C" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill="url(#goldArea)" />
+        <path d={linePath} fill="none" stroke="url(#goldStroke)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      </svg>
+
+      <div className="areaChartGrid">
+        {points.map((point) => (
+          <button
+            type="button"
+            className={`areaMonth ${point.month === selectedMonth ? 'active' : ''}`}
+            key={point.month}
+            title={`${point.label}: ${money(point.revenueCents)} em receitas`}
+            onClick={() => onSelectMonth(point.month)}
+          >
+            <span>{point.label}</span>
+            <strong>{compactMoney(point.revenueCents)}</strong>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DrawerContent({ mode, data }: { mode: DrawerMode; data: DashboardData }) {
+  const revenueEntries = data.financialEntries.filter((entry) => entry.type === 'REVENUE');
+  const expenseEntries = data.financialEntries.filter((entry) => entry.type === 'EXPENSE');
+  const expenseCategories = data.financialCategories.filter((category) => category.type === 'EXPENSE');
+  const revenueCategories = data.financialCategories.filter((category) => category.type === 'REVENUE');
+
+  if (mode === 'revenue') {
     return (
-      <button type="button" className={`kpiCard clickable tone-${tone}`} onClick={onClick}>
-        {Content}
-      </button>
+      <>
+        <div className="drawerHero successHero">
+          <span>Receitas do período</span>
+          <strong>{money(data.metrics.revenueCents)}</strong>
+          <small>{revenueEntries.length} lançamento(s) em {data.filters.monthLabel}</small>
+        </div>
+
+        <div className="drawerSection">
+          <h3>Entradas por categoria</h3>
+          {revenueCategories.length === 0 && <p className="mutedLine">Nenhuma categoria de receita registrada no mês.</p>}
+          {revenueCategories.map((category) => (
+            <div className="drawerCategory" key={category.category}>
+              <span>{category.category}</span>
+              <strong>{money(category.totalCents)}</strong>
+              <small>{category.count} lançamento(s)</small>
+            </div>
+          ))}
+        </div>
+
+        <div className="drawerSection">
+          <h3>Extrato de entradas</h3>
+          {revenueEntries.length === 0 && <p className="mutedLine">Nenhuma entrada registrada neste mês.</p>}
+          {revenueEntries.map((entry) => <FinancialLine entry={entry} key={entry.id} />)}
+        </div>
+      </>
     );
   }
 
-  return <div className={`kpiCard tone-${tone}`}>{Content}</div>;
+  if (mode === 'expenses') {
+    return (
+      <>
+        <div className="drawerHero dangerHero">
+          <span>Gastos do período</span>
+          <strong>{money(data.metrics.expenseCents)}</strong>
+          <small>{expenseEntries.length} lançamento(s) em {data.filters.monthLabel}</small>
+        </div>
+
+        <div className="drawerSection">
+          <h3>Despesas por categoria</h3>
+          {expenseCategories.length === 0 && <p className="mutedLine">Nenhuma categoria de despesa registrada no mês.</p>}
+          {expenseCategories.map((category) => (
+            <div className="drawerCategory" key={category.category}>
+              <span>{category.category}</span>
+              <strong>{money(category.totalCents)}</strong>
+              <small>{category.count} lançamento(s)</small>
+            </div>
+          ))}
+        </div>
+
+        <div className="drawerSection">
+          <h3>Extrato de saídas</h3>
+          {expenseEntries.length === 0 && <p className="mutedLine">Nenhuma despesa registrada neste mês.</p>}
+          {expenseEntries.map((entry) => <FinancialLine entry={entry} key={entry.id} />)}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className={`drawerHero ${data.metrics.netProfitCents >= 0 ? 'successHero' : 'dangerHero'}`}>
+        <span>Lucro líquido estimado</span>
+        <strong>{money(data.metrics.netProfitCents)}</strong>
+        <small>Margem líquida {data.metrics.marginPct.toFixed(1).replace('.', ',')}%</small>
+      </div>
+
+      <div className="drawerBalance">
+        <div>
+          <span>Entrou</span>
+          <strong>{money(data.metrics.revenueCents)}</strong>
+        </div>
+        <div>
+          <span>Saiu</span>
+          <strong>{money(data.metrics.expenseCents)}</strong>
+        </div>
+        <div>
+          <span>Resultado</span>
+          <strong>{money(data.metrics.netProfitCents)}</strong>
+        </div>
+      </div>
+
+      <div className="drawerSection">
+        <h3>Leitura gerencial</h3>
+        {data.insights.map((insight) => (
+          <div className={`insight ${insight.severity}`} key={insight.title}>
+            <strong>{insight.title}</strong>
+            <p>{insight.message}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="drawerSection">
+        <h3>Resumo para consultoria</h3>
+        <p className="mutedLine">
+          O painel cruza receitas, despesas, margem, projeção de crescimento, agenda do dia e estoque crítico.
+          Use a exportação em PDF para apresentação e Excel para análise operacional/contábil.
+        </p>
+      </div>
+    </>
+  );
+}
+
+function FinancialLine({ entry }: { entry: FinancialEntry }) {
+  const positive = entry.type === 'REVENUE';
+  return (
+    <div className={`financialLine ${positive ? 'positive' : 'negative'}`}>
+      <div>
+        <strong>{entry.description}</strong>
+        <span>{entry.category} • {date(entry.createdAt)} • {statusLabel(entry.status)}</span>
+        {entry.notes && <small>{entry.notes}</small>}
+      </div>
+      <b>{positive ? '+' : '-'} {money(entry.amountCents)}</b>
+    </div>
+  );
 }
 
 export function Dashboard() {
@@ -156,6 +384,8 @@ export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [drawer, setDrawer] = useState<DrawerMode>(null);
+  const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null);
 
   const years = useMemo(() => {
     const current = new Date().getFullYear();
@@ -172,10 +402,28 @@ export function Dashboard() {
       .finally(() => setLoading(false));
   }, [month, year]);
 
-  const maxChartValue = useMemo(() => {
-    const values = data?.monthlyFinancial.flatMap((item) => [item.revenueCents, item.expenseCents, Math.abs(item.netProfitCents)]) ?? [1];
-    return Math.max(1, ...values);
-  }, [data]);
+  async function exportReport(format: 'pdf' | 'xlsx') {
+    try {
+      setExporting(format);
+      const response = await api.get(`/reports/dashboard.${format}`, {
+        params: { month, year },
+        responseType: 'blob'
+      });
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `duartefilms-dashboard-${year}-${String(month).padStart(2, '0')}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setError('Não foi possível exportar o relatório agora.');
+    } finally {
+      setExporting(null);
+    }
+  }
 
   const selectedMonthName = MONTHS.find((item) => item.value === month)?.label ?? 'Mês';
   const metrics = data?.metrics;
@@ -189,19 +437,30 @@ export function Dashboard() {
           <p>Lucro bruto, lucro líquido, gastos, crescimento, agenda do dia e estoque crítico em tempo real.</p>
         </div>
 
-        <div className="dashFilters">
-          <label>
-            Mês
-            <select value={month} onChange={(event) => setMonth(Number(event.target.value))}>
-              {MONTHS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-          </label>
-          <label>
-            Ano
-            <select value={year} onChange={(event) => setYear(Number(event.target.value))}>
-              {years.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
+        <div className="dashActions">
+          <div className="exportActions" aria-label="Exportações do dashboard">
+            <button className="goldButton exportButton" type="button" onClick={() => exportReport('pdf')} disabled={!!exporting}>
+              <FileText size={16} /> {exporting === 'pdf' ? 'Gerando PDF...' : 'Exportar PDF'}
+            </button>
+            <button className="ghostButton exportButton" type="button" onClick={() => exportReport('xlsx')} disabled={!!exporting}>
+              <FileSpreadsheet size={16} /> {exporting === 'xlsx' ? 'Gerando Excel...' : 'Exportar Excel'}
+            </button>
+          </div>
+
+          <div className="dashFilters">
+            <label>
+              Mês
+              <select value={month} onChange={(event) => setMonth(Number(event.target.value))}>
+                {MONTHS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+            <label>
+              Ano
+              <select value={year} onChange={(event) => setYear(Number(event.target.value))}>
+                {years.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -215,22 +474,25 @@ export function Dashboard() {
               icon={WalletCards}
               label={`Lucro bruto / receita - ${selectedMonthName}`}
               value={money(metrics.grossProfitCents)}
-              helper={`${pct(metrics.monthlyGrowthPct)} vs. mês anterior`}
+              helper={`${pct(metrics.monthlyGrowthPct)} vs. mês anterior • clique para detalhar`}
               tone={metrics.monthlyGrowthPct >= 0 ? 'success' : 'warning'}
+              onClick={() => setDrawer('revenue')}
             />
             <MetricCard
               icon={ArrowDownRight}
               label="Gastos do mês"
               value={money(metrics.expenseCents)}
-              helper="Despesas registradas no financeiro"
+              helper="Despesas registradas no financeiro • clique para detalhar"
               tone={metrics.expenseCents > metrics.grossProfitCents ? 'danger' : 'default'}
+              onClick={() => setDrawer('expenses')}
             />
             <MetricCard
               icon={TrendingUp}
               label="Lucro líquido estimado"
               value={money(metrics.netProfitCents)}
-              helper={`Margem ${metrics.marginPct.toFixed(1).replace('.', ',')}%`}
+              helper={`Margem ${metrics.marginPct.toFixed(1).replace('.', ',')}% • clique para balanço`}
               tone={metrics.netProfitCents >= 0 ? 'success' : 'danger'}
+              onClick={() => setDrawer('profit')}
             />
             <MetricCard
               icon={CalendarDays}
@@ -242,8 +504,8 @@ export function Dashboard() {
             />
           </div>
 
-          <div className="dashMainGrid">
-            <div className="card financeChartCard">
+          <div className="dashMainGrid v2DashGrid">
+            <div className="card financeChartCard premiumAreaCard">
               <div className="cardTitleRow">
                 <div>
                   <span className="eyebrow">Balanço financeiro</span>
@@ -256,28 +518,17 @@ export function Dashboard() {
               </div>
 
               <div className="balanceStrip">
-                <div><span>Entradas</span><strong>{money(metrics.revenueCents)}</strong></div>
-                <div><span>Saídas</span><strong>{money(metrics.expenseCents)}</strong></div>
-                <div><span>Saldo</span><strong>{money(metrics.netProfitCents)}</strong></div>
+                <button type="button" onClick={() => setDrawer('revenue')}><span>Entradas</span><strong>{money(metrics.revenueCents)}</strong></button>
+                <button type="button" onClick={() => setDrawer('expenses')}><span>Saídas</span><strong>{money(metrics.expenseCents)}</strong></button>
+                <button type="button" onClick={() => setDrawer('profit')}><span>Saldo</span><strong>{money(metrics.netProfitCents)}</strong></button>
               </div>
 
-              <div className="barChart" aria-label="Receitas, despesas e lucro líquido mês a mês">
-                {data.monthlyFinancial.map((item) => (
-                  <div className={`barMonth ${item.month === month ? 'active' : ''}`} key={item.month} title={`${item.label}: receita ${money(item.revenueCents)}, despesa ${money(item.expenseCents)}`}>
-                    <div className="barStack">
-                      <span className="bar revenue" style={{ height: `${Math.max(4, (item.revenueCents / maxChartValue) * 120)}px` }} />
-                      <span className="bar expense" style={{ height: `${Math.max(4, (item.expenseCents / maxChartValue) * 120)}px` }} />
-                      <span className={`bar net ${item.netProfitCents < 0 ? 'negative' : ''}`} style={{ height: `${Math.max(4, (Math.abs(item.netProfitCents) / maxChartValue) * 120)}px` }} />
-                    </div>
-                    <small>{item.label}</small>
-                  </div>
-                ))}
-              </div>
+              <FinancialAreaChart data={data.monthlyFinancial} selectedMonth={month} onSelectMonth={setMonth} />
 
               <div className="chartLegend">
-                <span><i className="legend revenue" /> Receita</span>
-                <span><i className="legend expense" /> Gastos</span>
-                <span><i className="legend net" /> Lucro líquido</span>
+                <span><i className="legend revenue" /> Receita em área dourada</span>
+                <span><i className="legend net" /> Detalhamento nos cards clicáveis</span>
+                <span><i className="legend expense" /> Exportação PDF/Excel</span>
               </div>
             </div>
 
@@ -394,6 +645,37 @@ export function Dashboard() {
               </div>
             </div>
           </div>
+
+          {drawer && (
+            <div className="drawerBackdrop" role="presentation" onClick={() => setDrawer(null)}>
+              <aside className="smartDrawer" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+                <div className="drawerHeader">
+                  <div>
+                    <span className="eyebrow">Detalhamento dinâmico</span>
+                    <h2>
+                      {drawer === 'revenue' && 'Receitas do mês'}
+                      {drawer === 'expenses' && 'Gastos do mês'}
+                      {drawer === 'profit' && 'Balanço líquido'}
+                    </h2>
+                  </div>
+                  <button type="button" className="iconButton" onClick={() => setDrawer(null)} aria-label="Fechar gaveta">
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <DrawerContent mode={drawer} data={data} />
+
+                <div className="drawerFooter">
+                  <button type="button" className="ghostButton" onClick={() => navigate('/financeiro')}>
+                    <ReceiptText size={16} /> Abrir financeiro
+                  </button>
+                  <button type="button" className="goldButton" onClick={() => exportReport(drawer === 'expenses' ? 'xlsx' : 'pdf')}>
+                    <Download size={16} /> Exportar análise
+                  </button>
+                </div>
+              </aside>
+            </div>
+          )}
         </>
       )}
     </section>
