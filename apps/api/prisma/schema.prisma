@@ -205,6 +205,8 @@ model Appointment {
 
 model Quote {
   id              String      @id @default(uuid())
+  code            String?     @unique
+  sequence        Int?
   companyId       String
   company         Company     @relation(fields: [companyId], references: [id])
   clientId        String
@@ -242,6 +244,8 @@ model QuoteItem {
 
 model WorkOrder {
   id         String          @id @default(uuid())
+  code       String?         @unique
+  sequence   Int?
   companyId  String
   company    Company         @relation(fields: [companyId], references: [id])
   quoteId    String?

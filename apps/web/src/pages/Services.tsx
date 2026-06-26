@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Clock, Eye, EyeOff, Pencil, Plus, Search, Sparkles, Tag, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, money } from '../api/client';
-import { Service } from '../types';
+import { Appointment, Service } from '../types';
 
 type ServiceForm = {
   name: string;
@@ -35,6 +35,7 @@ function priceToInput(cents: number) {
 export function Services() {
   const navigate = useNavigate();
   const [services, setServices] = useState<Service[]>([]);
+  const [realizedServices, setRealizedServices] = useState<Appointment[]>([]);
   const [form, setForm] = useState<ServiceForm>(emptyForm);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -46,8 +47,12 @@ export function Services() {
   async function load() {
     setLoading(true);
     try {
-      const res = await api.get('/services');
-      setServices(res.data.services);
+      const [servicesRes, realizedRes] = await Promise.all([
+        api.get('/services'),
+        api.get('/services/realized')
+      ]);
+      setServices(servicesRes.data.services);
+      setRealizedServices(realizedRes.data.realizedServices);
     } finally {
       setLoading(false);
     }
@@ -73,6 +78,9 @@ export function Services() {
   const publicServices = services.filter((service) => service.isPublic !== false).length;
   const averageTicket = services.length
     ? Math.round(services.reduce((total, service) => total + service.basePriceCents, 0) / services.length)
+    : 0;
+  const realizedTicket = realizedServices.length
+    ? Math.round(realizedServices.reduce((total, appointment) => total + appointment.service.basePriceCents, 0) / realizedServices.length)
     : 0;
 
   function openCreateDrawer() {
@@ -167,6 +175,29 @@ export function Services() {
           <span>Ticket médio base</span>
           <strong>{money(averageTicket)}</strong>
           <small>Média do catálogo</small>
+        </div>
+      </div>
+
+      <div className="serviceDonePanel">
+        <div>
+          <span className="eyebrow">Serviços realizados</span>
+          <h2>Histórico concluído</h2>
+          <p>Todo atendimento marcado como concluído na agenda aparece aqui como serviço realizado.</p>
+        </div>
+        <div className="doneMetrics">
+          <strong>{realizedServices.length}</strong>
+          <span>concluído(s)</span>
+          <small>Ticket médio realizado: {money(realizedTicket)}</small>
+        </div>
+        <div className="doneServiceList">
+          {realizedServices.slice(0, 4).map((appointment) => (
+            <div className="doneServiceItem" key={appointment.id}>
+              <strong>{appointment.service.name}</strong>
+              <span>{appointment.client.name}{appointment.vehicle ? ` • ${appointment.vehicle.model}` : ''}</span>
+              <small>{new Date(appointment.startsAt).toLocaleDateString('pt-BR')}</small>
+            </div>
+          ))}
+          {realizedServices.length === 0 ? <p>Nenhum serviço concluído ainda. Finalize um atendimento na agenda para alimentar este registro.</p> : null}
         </div>
       </div>
 

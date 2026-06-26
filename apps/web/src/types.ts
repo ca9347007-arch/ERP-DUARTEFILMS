@@ -44,6 +44,43 @@ export type Appointment = {
   service: Service;
 };
 
+export type QuoteItem = {
+  id: string;
+  serviceId?: string | null;
+  service?: Service | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  totalCents: number;
+};
+
+export type WorkOrder = {
+  id: string;
+  code?: string | null;
+  sequence?: number | null;
+  status: string;
+  createdAt: string;
+};
+
+export type Quote = {
+  id: string;
+  code?: string | null;
+  sequence?: number | null;
+  title: string;
+  status: string;
+  subtotalCents: number;
+  discountCents: number;
+  totalCents: number;
+  validUntil?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  client: Client;
+  vehicle?: Vehicle | null;
+  items: QuoteItem[];
+  workOrders?: WorkOrder[];
+};
+
 export type Product = {
   id: string;
   name: string;
