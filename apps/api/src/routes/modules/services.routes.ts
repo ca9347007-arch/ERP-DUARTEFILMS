@@ -46,6 +46,29 @@ servicesRouter.get('/realized', asyncHandler(async (req, res) => {
   res.json({ realizedServices });
 }));
 
+
+servicesRouter.get('/operational', asyncHandler(async (req, res) => {
+  const operationalServices = await prisma.appointment.findMany({
+    where: { companyId: req.auth!.companyId },
+    include: {
+      client: true,
+      vehicle: true,
+      service: true,
+      quotes: {
+        include: {
+          items: { include: { service: true, product: true } },
+          workOrders: true
+        },
+        orderBy: { createdAt: 'desc' }
+      }
+    },
+    orderBy: { startsAt: 'desc' },
+    take: 120
+  });
+
+  res.json({ operationalServices });
+}));
+
 servicesRouter.post('/', requireRoles(UserRole.ADMIN, UserRole.MANAGER), asyncHandler(async (req, res) => {
   const data = serviceSchema.parse(req.body);
   const service = await prisma.service.create({ data: { companyId: req.auth!.companyId, ...data } });

@@ -42,12 +42,15 @@ export type Appointment = {
   client: Client;
   vehicle?: Vehicle | null;
   service: Service;
+  quotes?: Quote[];
 };
 
 export type QuoteItem = {
   id: string;
   serviceId?: string | null;
   service?: Service | null;
+  productId?: string | null;
+  product?: Product | null;
   description: string;
   quantity: number;
   unitPriceCents: number;
@@ -72,11 +75,13 @@ export type Quote = {
   discountCents: number;
   totalCents: number;
   validUntil?: string | null;
+  issuedAt?: string | null;
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
   client: Client;
   vehicle?: Vehicle | null;
+  appointment?: Appointment | null;
   items: QuoteItem[];
   workOrders?: WorkOrder[];
 };
@@ -100,4 +105,20 @@ export type FinancialEntry = {
   status: string;
   paymentMethod?: string | null;
   createdAt: string;
+};
+
+export type CompanySettings = {
+  fantasyName: string;
+  legalName?: string;
+  document?: string;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  defaultQuoteValidityDays: number;
+  quoteWarrantyText?: string;
+  quotePaymentText?: string;
+  businessHours?: string;
 };

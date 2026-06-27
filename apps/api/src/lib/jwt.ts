@@ -1,4 +1,4 @@
-﻿import jwt, { type SignOptions } from 'jsonwebtoken';
+import jwt, { type SignOptions } from 'jsonwebtoken';
 import { UserRole } from '@prisma/client';
 import { env } from '../config/env.js';
 

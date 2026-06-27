@@ -1,35 +1,71 @@
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ClipboardList, Download, Eye, FileText, MessageCircle, Plus, RefreshCcw, Search, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Copy, Edit3, Eye, MessageCircle, Plus, Printer, Search, Trash2, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { api, money } from '../api/client';
-import { Client, Quote, QuoteItem, Service } from '../types';
+import { Client, CompanySettings, Product, Quote, Service } from '../types';
+
+type DiscountMode = 'VALUE' | 'PERCENT';
+
+type QuoteFormItem = {
+  localId: string;
+  serviceId: string;
+  productId: string;
+  description: string;
+  quantity: string;
+  unitPriceReais: string;
+};
 
 type QuoteForm = {
   clientId: string;
   vehicleId: string;
-  serviceId: string;
+  appointmentId: string;
   title: string;
-  description: string;
-  quantity: string;
-  unitPriceReais: string;
-  discountReais: string;
+  issuedAt: string;
   validUntil: string;
   notes: string;
-  appointmentId: string;
+  discountMode: DiscountMode;
+  discountValue: string;
+  items: QuoteFormItem[];
 };
 
-const emptyForm: QuoteForm = {
-  clientId: '',
-  vehicleId: '',
+const emptyItem = (): QuoteFormItem => ({
+  localId: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Math.random()),
   serviceId: '',
-  title: '',
+  productId: '',
   description: '',
   quantity: '1',
-  unitPriceReais: '',
-  discountReais: '0,00',
+  unitPriceReais: ''
+});
+
+const emptyForm = (): QuoteForm => ({
+  clientId: '',
+  vehicleId: '',
+  appointmentId: '',
+  title: '',
+  issuedAt: new Date().toISOString().slice(0, 10),
   validUntil: '',
   notes: '',
-  appointmentId: ''
+  discountMode: 'VALUE',
+  discountValue: '0,00',
+  items: [emptyItem()]
+});
+
+const defaultSettings: CompanySettings = {
+  fantasyName: 'DuarteFilms',
+  legalName: 'DuarteFilms Estética Automotiva',
+  document: '',
+  phone: '',
+  whatsapp: '',
+  email: 'contato@duartefilms.local',
+  address: '',
+  city: '',
+  state: '',
+  defaultQuoteValidityDays: 7,
+  quoteWarrantyText: 'Garantia conforme linha de película e serviço contratado.',
+  quotePaymentText: 'Pagamento via PIX manual, dinheiro, cartão ou transferência.',
+  businessHours: 'Segunda a sábado, das 08h �s 18h.'
 };
 
 const statusLabels: Record<string, string> = {
@@ -51,12 +87,28 @@ function priceToInput(cents: number) {
   return (cents / 100).toFixed(2).replace('.', ',');
 }
 
-function quoteCode(quote: Quote) {
-  return quote.code || `OS-${new Date(quote.createdAt).getFullYear()}-${quote.id.slice(0, 6).toUpperCase()}`;
+function numberToPercentInput(value: number) {
+  return value.toFixed(2).replace('.', ',');
 }
 
-function createdLabel(value: string) {
-  return new Date(value).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+function parsePercent(value: string) {
+  const normalized = value.replace(',', '.').replace(/[^0-9.]/g, '');
+  return Math.max(0, Math.min(100, Number(normalized || 0)));
+}
+
+function toDateInput(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function quoteCode(quote: Quote) {
+  return quote.code || String(quote.sequence ?? 0).padStart(6, '0') || quote.id.slice(0, 6).toUpperCase();
+}
+
+function issuedLabel(quote: Quote) {
+  return new Date(quote.issuedAt || quote.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function isFollowUpNeeded(quote: Quote) {
@@ -72,20 +124,27 @@ function whatsappLink(phone: string, message: string) {
   return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
 }
 
-function QuoteDocument({ quote }: { quote: Quote }) {
+function companyLocation(settings: CompanySettings) {
+  return [settings.address, settings.city, settings.state].filter(Boolean).join(' • ');
+}
+
+function QuoteDocument({ quote, settings }: { quote: Quote; settings: CompanySettings }) {
   return (
-    <div className="quoteDocument">
+    <div className="quoteDocument" id="printableQuoteDocument">
       <header className="quoteDocHeader">
         <div className="quoteDocBrand">
           <div className="brandMark">DF</div>
-          <div><strong>DuarteFilms</strong><span>Estética & Proteção</span></div>
+          <div>
+            <strong>{settings.fantasyName || 'DuarteFilms'}</strong>
+            <span>Estética & Proteção</span>
+          </div>
         </div>
         <div className="quoteDocMeta">
           <h2>ORÇAMENTO</h2>
           <span>{statusLabels[quote.status] ?? quote.status}</span>
           <div className="quoteDocMetaGrid">
             <small>Número <b>#{quoteCode(quote)}</b></small>
-            <small>Emissão <b>{createdLabel(quote.createdAt)}</b></small>
+            <small>Emissão <b>{issuedLabel(quote)}</b></small>
             <small>Cliente <b>{quote.client.name}</b></small>
             <small>Total <b>{money(quote.totalCents)}</b></small>
           </div>
@@ -101,9 +160,11 @@ function QuoteDocument({ quote }: { quote: Quote }) {
         </div>
         <div>
           <h3>Dados da empresa</h3>
-          <p><b>Empresa:</b> DuarteFilms Estética Automotiva</p>
-          <p><b>E-mail:</b> contato@duartefilms.local</p>
-          <p><b>Atendente:</b> Admin Local</p>
+          <p><b>Empresa:</b> {settings.legalName || settings.fantasyName}</p>
+          {settings.document ? <p><b>CNPJ/CPF:</b> {settings.document}</p> : null}
+          {settings.phone || settings.whatsapp ? <p><b>Contato:</b> {settings.phone || settings.whatsapp}</p> : null}
+          {settings.email ? <p><b>E-mail:</b> {settings.email}</p> : null}
+          {companyLocation(settings) ? <p><b>Endere�o:</b> {companyLocation(settings)}</p> : null}
         </div>
       </section>
 
@@ -114,7 +175,10 @@ function QuoteDocument({ quote }: { quote: Quote }) {
         <tbody>
           {quote.items.map((item) => (
             <tr key={item.id}>
-              <td><strong>{item.service?.name || item.description}</strong><span>{item.description}</span></td>
+              <td>
+                <strong>{item.service?.name || item.product?.name || item.description}</strong>
+                <span>{item.description}</span>
+              </td>
               <td>{item.quantity}</td>
               <td>{money(item.unitPriceCents)}</td>
               <td>{money(item.totalCents)}</td>
@@ -132,7 +196,8 @@ function QuoteDocument({ quote }: { quote: Quote }) {
       <footer className="quoteDocFooter">
         <div>
           <h4>Termos & garantia</h4>
-          <p>Orçamento válido pelo prazo informado. Pagamento via PIX manual, dinheiro, cartão ou transferência. Garantia conforme linha de película e serviço contratado.</p>
+          <p>{settings.quotePaymentText || defaultSettings.quotePaymentText} {settings.quoteWarrantyText || defaultSettings.quoteWarrantyText}</p>
+          {settings.businessHours ? <small>Horário de atendimento: {settings.businessHours}</small> : null}
         </div>
         <div className="signatureLine">Assinatura do cliente</div>
       </footer>
@@ -145,25 +210,42 @@ export function Quotes() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [settings, setSettings] = useState<CompanySettings>(defaultSettings);
   const [search, setSearch] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [previewQuote, setPreviewQuote] = useState<Quote | null>(null);
-  const [form, setForm] = useState<QuoteForm>(emptyForm);
+  const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
+  const [form, setForm] = useState<QuoteForm>(emptyForm());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    const [quotesRes, clientsRes, servicesRes] = await Promise.all([
+    const [quotesRes, clientsRes, servicesRes, productsRes, settingsRes] = await Promise.all([
       api.get('/quotes'),
       api.get('/clients'),
-      api.get('/services')
+      api.get('/services'),
+      api.get('/products'),
+      api.get('/settings/company').catch(() => ({ data: { settings: defaultSettings } }))
     ]);
     setQuotes(quotesRes.data.quotes);
     setClients(clientsRes.data.clients);
     setServices(servicesRes.data.services);
+    setProducts(productsRes.data.products);
+    setSettings({ ...defaultSettings, ...settingsRes.data.settings });
   }
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const quoteId = searchParams.get('quoteId');
+    if (!quoteId || quotes.length === 0) return;
+    const quote = quotes.find((item) => item.id === quoteId);
+    if (quote) {
+      setPreviewQuote(quote);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, quotes, setSearchParams]);
 
   useEffect(() => {
     const clientId = searchParams.get('clientId') ?? '';
@@ -172,21 +254,32 @@ export function Quotes() {
     if (!clientId && !serviceId && !appointmentId) return;
 
     const service = services.find((item) => item.id === serviceId);
-    setForm({
-      ...emptyForm,
-      clientId,
+    const next = emptyForm();
+    next.clientId = clientId;
+    next.appointmentId = appointmentId;
+    next.title = service ? `Orçamento - ${service.name}` : 'Orçamento DuarteFilms';
+    next.items = [{
+      ...emptyItem(),
       serviceId,
-      appointmentId,
-      title: service ? `Orçamento - ${service.name}` : 'Orçamento DuarteFilms',
       description: service?.description || service?.name || '',
       unitPriceReais: service ? priceToInput(service.basePriceCents) : ''
-    });
+    }];
+    setForm(next);
+    setEditingQuote(null);
     setDrawerOpen(true);
     setSearchParams({}, { replace: true });
   }, [searchParams, services, setSearchParams]);
 
   const selectedClient = clients.find((client) => client.id === form.clientId);
-  const selectedService = services.find((service) => service.id === form.serviceId);
+
+  const subtotalCents = useMemo(() => form.items.reduce((sum, item) => sum + (Number(item.quantity || 1) * parseMoneyToCents(item.unitPriceReais)), 0), [form.items]);
+  const discountCents = useMemo(() => {
+    const value = form.discountMode === 'PERCENT'
+      ? Math.round(subtotalCents * (parsePercent(form.discountValue) / 100))
+      : parseMoneyToCents(form.discountValue);
+    return Math.min(subtotalCents, Math.max(0, value));
+  }, [form.discountMode, form.discountValue, subtotalCents]);
+  const totalCents = Math.max(0, subtotalCents - discountCents);
 
   const filteredQuotes = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -205,7 +298,8 @@ export function Quotes() {
   }), [quotes]);
 
   function openCreateDrawer() {
-    setForm(emptyForm);
+    setForm(emptyForm());
+    setEditingQuote(null);
     setError(null);
     setDrawerOpen(true);
   }
@@ -213,19 +307,79 @@ export function Quotes() {
   function closeDrawer() {
     if (saving) return;
     setDrawerOpen(false);
-    setForm(emptyForm);
+    setEditingQuote(null);
+    setForm(emptyForm());
     setError(null);
   }
 
-  function handleServiceChange(serviceId: string) {
+  function updateItem(localId: string, patch: Partial<QuoteFormItem>) {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((item) => item.localId === localId ? { ...item, ...patch } : item)
+    }));
+  }
+
+  function handleItemServiceChange(localId: string, serviceId: string) {
     const service = services.find((item) => item.id === serviceId);
-    setForm({
-      ...form,
+    updateItem(localId, {
       serviceId,
-      title: service ? `Orçamento - ${service.name}` : form.title,
-      description: service?.description || service?.name || form.description,
-      unitPriceReais: service ? priceToInput(service.basePriceCents) : form.unitPriceReais
+      productId: '',
+      description: service?.description || service?.name || '',
+      unitPriceReais: service ? priceToInput(service.basePriceCents) : ''
     });
+  }
+
+  function handleItemProductChange(localId: string, productId: string) {
+    const product = products.find((item) => item.id === productId);
+    updateItem(localId, {
+      productId,
+      serviceId: '',
+      description: product ? `${product.name}${product.brand ? ` • ${product.brand}` : ''}${product.unit ? ` (${product.unit})` : ''}` : '',
+      unitPriceReais: product ? priceToInput(product.costCents) : ''
+    });
+  }
+
+  function addItem() {
+    setForm((current) => ({ ...current, items: [...current.items, emptyItem()] }));
+  }
+
+  function removeItem(localId: string) {
+    setForm((current) => ({ ...current, items: current.items.length > 1 ? current.items.filter((item) => item.localId !== localId) : current.items }));
+  }
+
+  function openEditQuote(quote: Quote) {
+    const discountPercent = quote.subtotalCents ? (quote.discountCents / quote.subtotalCents) * 100 : 0;
+    setEditingQuote(quote);
+    setForm({
+      clientId: quote.client.id,
+      vehicleId: quote.vehicle?.id ?? '',
+      appointmentId: quote.appointment?.id ?? '',
+      title: quote.title,
+      issuedAt: toDateInput(quote.issuedAt || quote.createdAt),
+      validUntil: toDateInput(quote.validUntil),
+      notes: quote.notes ?? '',
+      discountMode: 'VALUE',
+      discountValue: priceToInput(quote.discountCents),
+      items: quote.items.map((item) => ({
+        localId: item.id,
+        serviceId: item.serviceId ?? '',
+        productId: item.productId ?? '',
+        description: item.description,
+        quantity: String(item.quantity),
+        unitPriceReais: priceToInput(item.unitPriceCents)
+      })) || [emptyItem()]
+    });
+    if (quote.discountCents && discountPercent > 0) {
+      setForm((current) => ({ ...current, discountMode: 'VALUE', discountValue: priceToInput(quote.discountCents) }));
+    }
+    setError(null);
+    setDrawerOpen(true);
+  }
+
+  function duplicateQuote(quote: Quote) {
+    openEditQuote(quote);
+    setEditingQuote(null);
+    setForm((current) => ({ ...current, title: `${quote.title} - c�pia`, issuedAt: new Date().toISOString().slice(0, 10) }));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -234,25 +388,33 @@ export function Quotes() {
     setError(null);
 
     try {
-      await api.post('/quotes', {
+      const payload = {
         clientId: form.clientId,
         vehicleId: form.vehicleId || undefined,
         appointmentId: form.appointmentId || undefined,
         title: form.title.trim(),
-        discountCents: parseMoneyToCents(form.discountReais),
+        discountCents,
+        issuedAt: form.issuedAt ? new Date(`${form.issuedAt}T12:00:00`).toISOString() : undefined,
         validUntil: form.validUntil ? new Date(`${form.validUntil}T23:59:59`).toISOString() : undefined,
         notes: form.notes.trim(),
-        items: [{
-          serviceId: form.serviceId || undefined,
-          description: form.description.trim() || selectedService?.name || form.title.trim(),
-          quantity: Number(form.quantity || 1),
-          unitPriceCents: parseMoneyToCents(form.unitPriceReais)
-        }]
-      });
+        items: form.items.map((item) => ({
+          serviceId: item.serviceId || undefined,
+          productId: item.productId || undefined,
+          description: item.description.trim(),
+          quantity: Number(item.quantity || 1),
+          unitPriceCents: parseMoneyToCents(item.unitPriceReais)
+        }))
+      };
+
+      if (editingQuote) {
+        await api.patch(`/quotes/${editingQuote.id}`, payload);
+      } else {
+        await api.post('/quotes', payload);
+      }
       await load();
       closeDrawer();
     } catch {
-      setError('Não foi possível criar o orçamento. Verifique cliente, serviço, descrição e valores.');
+      setError('Não foi poss�vel salvar o orçamento. Verifique cliente, itens, descrição e valores.');
     } finally {
       setSaving(false);
     }
@@ -268,22 +430,146 @@ export function Quotes() {
     await load();
   }
 
+  async function printQuote(quote: Quote) {
+    const sourceNode = (
+      document.getElementById("printableQuoteDocument") ||
+      document.querySelector(".quoteDocument")
+    ) as HTMLElement | null;
+
+    if (!sourceNode) {
+      alert("Documento do orcamento nao encontrado para gerar PDF.");
+      return;
+    }
+
+    const fileCode = typeof quoteCode === "function"
+      ? quoteCode(quote)
+      : String(quote?.code || "000000").replace(/[^0-9]/g, "").padStart(6, "0");
+
+    const fileName = `DuarteFilms OS ${fileCode}.pdf`;
+
+    const stage = document.createElement("div");
+    stage.className = "pdfCaptureStage";
+    stage.setAttribute("aria-hidden", "true");
+
+    const cloned = sourceNode.cloneNode(true) as HTMLElement;
+    cloned.classList.add("pdfQuoteDocument");
+
+    stage.appendChild(cloned);
+    document.body.appendChild(stage);
+
+    try {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+
+      const canvas = await html2canvas(cloned, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        windowWidth: cloned.scrollWidth,
+        windowHeight: cloned.scrollHeight
+      });
+
+      const pdf = new jsPDF("p", "mm", "a4");
+
+      const pageW = 210;
+      const pageH = 297;
+      const margin = 6;
+      const usableW = pageW - margin * 2;
+      const usableH = pageH - margin * 2;
+
+      const imgW = canvas.width;
+      const imgH = canvas.height;
+
+      const heightIfFitWidth = imgH * (usableW / imgW);
+
+      if (heightIfFitWidth <= usableH) {
+        const ratio = Math.min(usableW / imgW, usableH / imgH);
+        const finalW = imgW * ratio;
+        const finalH = imgH * ratio;
+        const x = (pageW - finalW) / 2;
+        const y = (pageH - finalH) / 2;
+
+        pdf.addImage(
+          canvas.toDataURL("image/png", 1.0),
+          "PNG",
+          x,
+          y,
+          finalW,
+          finalH,
+          undefined,
+          "FAST"
+        );
+      } else {
+        const ratio = usableW / imgW;
+        const pagePxH = Math.floor(usableH / ratio);
+        let yPx = 0;
+        let pageIndex = 0;
+
+        while (yPx < imgH) {
+          const sliceH = Math.min(pagePxH, imgH - yPx);
+
+          const pageCanvas = document.createElement("canvas");
+          pageCanvas.width = imgW;
+          pageCanvas.height = sliceH;
+
+          const ctx = pageCanvas.getContext("2d");
+
+          if (!ctx) {
+            throw new Error("Falha ao criar contexto do canvas para PDF.");
+          }
+
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+          ctx.drawImage(canvas, 0, yPx, imgW, sliceH, 0, 0, imgW, sliceH);
+
+          if (pageIndex > 0) pdf.addPage();
+
+          const finalH = sliceH * ratio;
+
+          pdf.addImage(
+            pageCanvas.toDataURL("image/png", 1.0),
+            "PNG",
+            margin,
+            margin,
+            usableW,
+            finalH,
+            undefined,
+            "FAST"
+          );
+
+          yPx += sliceH;
+          pageIndex++;
+        }
+      }
+
+      pdf.save(fileName);
+    } finally {
+      stage.remove();
+    }
+  }
+
   function renderQuoteCard(quote: Quote) {
     const followUp = isFollowUpNeeded(quote);
-    const message = `Olá, ${quote.client.name}! Passando para saber se ficou alguma dúvida sobre o orçamento ${quoteCode(quote)} da DuarteFilms. Podemos avaliar uma condição ou ajuste para fechar o serviço?`;
+    const message = `Ol�, ${quote.client.name}! Passando para saber se ficou alguma d�vida sobre o orçamento ${quoteCode(quote)} da DuarteFilms. Podemos avaliar uma condi��o ou ajuste para fechar o serviço?`;
 
     return (
       <article className={`quotePipelineCard status-${quote.status.toLowerCase()}`} key={quote.id}>
         {followUp ? <span className="followUpRibbon"><AlertTriangle size={14} /> Contatar cliente</span> : null}
         <div className="quotePipelineTop">
-          <span>{quoteCode(quote)}</span>
+          <span>#{quoteCode(quote)}</span>
           <strong>{money(quote.totalCents)}</strong>
         </div>
         <h3>{quote.title}</h3>
         <p>{quote.client.name}{quote.vehicle ? ` • ${quote.vehicle.model}` : ''}</p>
-        <small>Emitido em {createdLabel(quote.createdAt)} · {statusLabels[quote.status] ?? quote.status}</small>
+        {quote.appointment ? <small>Agenda: {new Date(quote.appointment.startsAt).toLocaleString('pt-BR')}</small> : null}
+        <small>Emitido em {issuedLabel(quote)} • {statusLabels[quote.status] ?? quote.status}</small>
         <div className="quotePipelineActions">
           <button type="button" className="ghostButton" onClick={() => setPreviewQuote(quote)}><Eye size={15} /> Visualizar</button>
+          <button type="button" className="ghostButton" onClick={() => openEditQuote(quote)}><Edit3 size={15} /> Editar</button>
+          <button type="button" className="ghostButton" onClick={() => duplicateQuote(quote)}><Copy size={15} /> Duplicar</button>
           {['DRAFT', 'SENT'].includes(quote.status) ? <button type="button" onClick={() => approveQuote(quote)}><CheckCircle2 size={15} /> Aprovar</button> : null}
           {['DRAFT', 'SENT'].includes(quote.status) ? <a className="ghostButton" href={whatsappLink(quote.client.phone, message)} target="_blank" rel="noreferrer"><MessageCircle size={15} /> WhatsApp</a> : null}
         </div>
@@ -336,42 +622,63 @@ export function Quotes() {
       </div>
 
       {drawerOpen ? (
-        <div className="drawerBackdrop" role="presentation" onMouseDown={closeDrawer}>
-          <aside className="sideDrawer quoteDrawer" role="dialog" aria-modal="true" aria-label="Novo orçamento" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="drawerBackdrop quoteFullScreenBackdrop" role="presentation" onMouseDown={closeDrawer}>
+          <aside className="sideDrawer quoteDrawer quoteFullScreenDrawer" role="dialog" aria-modal="true" aria-label="Orçamento" onMouseDown={(event) => event.stopPropagation()}>
             <div className="drawerHeader">
-              <div><span className="eyebrow">Novo orçamento</span><h2>Criar orçamento</h2><p>Use cliente, veículo e serviço para gerar um orçamento rastreável.</p></div>
+              <div>
+                <span className="eyebrow">{editingQuote ? 'Editar orçamento' : 'Novo orçamento'}</span>
+                <h2>{editingQuote ? `Editar #${quoteCode(editingQuote)}` : 'Criar orçamento'}</h2>
+                <p>Monte o orçamento em tela cheia com serviço padr�o, item manual ou material do estoque.</p>
+              </div>
               <button type="button" className="iconButton" onClick={closeDrawer} aria-label="Fechar gaveta"><X size={18} /></button>
             </div>
             {error ? <div className="errorBanner">{error}</div> : null}
-            <form className="drawerForm" onSubmit={submit}>
-              <label>Cliente<select required value={form.clientId} onChange={(event) => setForm({ ...form, clientId: event.target.value, vehicleId: '' })}><option value="">Selecione</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
-              <label>Veículo<select value={form.vehicleId} onChange={(event) => setForm({ ...form, vehicleId: event.target.value })}><option value="">Sem veículo vinculado</option>{selectedClient?.vehicles?.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand ? `${vehicle.brand} ` : ''}{vehicle.model}{vehicle.plate ? ` • ${vehicle.plate}` : ''}</option>)}</select></label>
-              <label>Serviço<select value={form.serviceId} onChange={(event) => handleServiceChange(event.target.value)}><option value="">Personalizado</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name} · {money(service.basePriceCents)}</option>)}</select></label>
-              <label>Título<input required minLength={2} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Ex: Orçamento película automotiva" /></label>
-              <label>Descrição<textarea required value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Detalhe serviço, linha de película, garantia, condição e observações." /></label>
-              <div className="drawerTwoColumns">
-                <label>Quantidade<input type="number" min={1} value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} /></label>
-                <label>Valor unitário R$<input required value={form.unitPriceReais} onChange={(event) => setForm({ ...form, unitPriceReais: event.target.value })} placeholder="350,00" /></label>
+            <form className="drawerForm quoteBuilderForm" onSubmit={submit}>
+              <div className="quoteBuilderGrid">
+                <label>Cliente<select required value={form.clientId} onChange={(event) => setForm({ ...form, clientId: event.target.value, vehicleId: '' })}><option value="">Selecione</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
+                <label>Veículo<select value={form.vehicleId} onChange={(event) => setForm({ ...form, vehicleId: event.target.value })}><option value="">Sem veículo vinculado</option>{selectedClient?.vehicles?.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand ? `${vehicle.brand} ` : ''}{vehicle.model}{vehicle.plate ? ` • ${vehicle.plate}` : ''}</option>)}</select></label>
+                <label>T�tulo<input required minLength={2} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Ex: Orçamento película automotiva" /></label>
+                <label>Emissão<input type="date" value={form.issuedAt} onChange={(event) => setForm({ ...form, issuedAt: event.target.value })} /></label>
+                <label>V�lido at�<input type="date" value={form.validUntil} onChange={(event) => setForm({ ...form, validUntil: event.target.value })} /></label>
               </div>
-              <div className="drawerTwoColumns">
-                <label>Desconto R$<input value={form.discountReais} onChange={(event) => setForm({ ...form, discountReais: event.target.value })} /></label>
-                <label>Válido até<input type="date" value={form.validUntil} onChange={(event) => setForm({ ...form, validUntil: event.target.value })} /></label>
+
+              <div className="quoteItemsEditor">
+                <div className="quoteItemsEditorHeader"><strong>Itens do orçamento</strong><button type="button" className="ghostButton" onClick={addItem}><Plus size={16} /> Adicionar item</button></div>
+                {form.items.map((item, index) => (
+                  <div className="quoteItemEditor" key={item.localId}>
+                    <div className="quoteItemEditorTop"><span>Item {index + 1}</span><button type="button" className="iconButton" onClick={() => removeItem(item.localId)}><Trash2 size={15} /></button></div>
+                    <div className="quoteBuilderGrid itemGrid">
+                      <label>Serviço cadastrado<select value={item.serviceId} onChange={(event) => handleItemServiceChange(item.localId, event.target.value)}><option value="">Personalizado/manual</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name} • {money(service.basePriceCents)}</option>)}</select></label>
+                      <label>Material do estoque<select value={item.productId} onChange={(event) => handleItemProductChange(item.localId, event.target.value)}><option value="">Sem item do estoque</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}{product.brand ? ` • ${product.brand}` : ''} • estoque {String(product.stockQuantity)} {product.unit}</option>)}</select></label>
+                      <label className="wideField">Descrição<textarea required value={item.description} onChange={(event) => updateItem(item.localId, { description: event.target.value })} placeholder="Descreva serviço, linha, película, garantia ou condi��o comercial." /></label>
+                      <label>Quantidade<input type="number" min={1} value={item.quantity} onChange={(event) => updateItem(item.localId, { quantity: event.target.value })} /></label>
+                      <label>Valor unit�rio R$<input required value={item.unitPriceReais} onChange={(event) => updateItem(item.localId, { unitPriceReais: event.target.value })} placeholder="350,00" /></label>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <label>Observações internas<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Motivo do desconto, negociação, observações comerciais." /></label>
-              <div className="drawerActions"><button type="button" className="ghostButton" onClick={closeDrawer} disabled={saving}>Cancelar</button><button type="submit" disabled={saving}>{saving ? 'Salvando...' : 'Gerar orçamento'}</button></div>
+
+              <div className="quoteBuilderSummary">
+                <label>Tipo de desconto<select value={form.discountMode} onChange={(event) => setForm({ ...form, discountMode: event.target.value as DiscountMode, discountValue: event.target.value === 'PERCENT' ? '0,00' : '0,00' })}><option value="VALUE">Desconto em R$</option><option value="PERCENT">Desconto em %</option></select></label>
+                <label>{form.discountMode === 'PERCENT' ? 'Desconto %' : 'Desconto R$'}<input value={form.discountValue} onChange={(event) => setForm({ ...form, discountValue: event.target.value })} placeholder={form.discountMode === 'PERCENT' ? '10,00' : '100,00'} /></label>
+                <div className="quoteLiveTotals"><span>Subtotal: <b>{money(subtotalCents)}</b></span><span>Desconto: <b>{form.discountMode === 'PERCENT' ? `${numberToPercentInput(parsePercent(form.discountValue))}% / ` : ''}{money(discountCents)}</b></span><strong>Total: {money(totalCents)}</strong></div>
+              </div>
+
+              <label>Observa��es internas<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Motivo do desconto, negocia��o, observações comerciais." /></label>
+              <div className="drawerActions"><button type="button" className="ghostButton" onClick={closeDrawer} disabled={saving}>Cancelar</button><button type="submit" disabled={saving}>{saving ? 'Salvando...' : editingQuote ? 'Salvar altera��es' : 'Gerar orçamento'}</button></div>
             </form>
           </aside>
         </div>
       ) : null}
 
       {previewQuote ? (
-        <div className="drawerBackdrop" role="presentation" onMouseDown={() => setPreviewQuote(null)}>
+        <div className="drawerBackdrop quotePrintBackdrop" role="presentation" onMouseDown={() => setPreviewQuote(null)}>
           <aside className="sideDrawer quotePreviewDrawer" role="dialog" aria-modal="true" aria-label="Visualizar orçamento" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="drawerHeader">
-              <div><span className="eyebrow">Pré-visualização</span><h2>{quoteCode(previewQuote)}</h2><p>Modelo premium baseado no documento comercial da DuarteFilms.</p></div>
-              <div className="previewActions"><button type="button" className="ghostButton" onClick={() => window.print()}><Download size={16} /> PDF</button><button type="button" className="iconButton" onClick={() => setPreviewQuote(null)}><X size={18} /></button></div>
+            <div className="drawerHeader noPrint">
+              <div><span className="eyebrow">Pré-visualização</span><h2>#{quoteCode(previewQuote)}</h2><p>Modelo premium baseado no documento comercial da DuarteFilms.</p></div>
+              <div className="previewActions"><button type="button" className="ghostButton" onClick={() => printQuote(previewQuote)}><Printer size={16} /> PDF</button><button type="button" className="iconButton" onClick={() => setPreviewQuote(null)}><X size={18} /></button></div>
             </div>
-            <QuoteDocument quote={previewQuote} />
+            <QuoteDocument quote={previewQuote} settings={settings} />
           </aside>
         </div>
       ) : null}

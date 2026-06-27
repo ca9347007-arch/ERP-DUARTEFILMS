@@ -12,3 +12,8 @@ uploads
 apps/api/uploads
 apps/web/.env.local
 .prisma
+
+# Local sprint backups / generated test files
+backups_sprint*/
+backup_Quotes_before*.tsx
+*.pdf

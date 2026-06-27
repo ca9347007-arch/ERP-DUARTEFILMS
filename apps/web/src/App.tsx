@@ -1,5 +1,5 @@
 import { Navigate, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
-import { CalendarDays, Car, ChartNoAxesCombined, ClipboardList, DollarSign, LogOut, Package, Users } from 'lucide-react';
+import { CalendarDays, Car, ChartNoAxesCombined, ClipboardList, DollarSign, LogOut, Package, Settings as SettingsIcon, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from './api/client';
 import { User } from './types';
@@ -13,6 +13,7 @@ import { Finance } from './pages/Finance';
 import { Stock } from './pages/Stock';
 import { Services } from './pages/Services';
 import { Quotes } from './pages/Quotes';
+import { Settings } from './pages/Settings';
 
 function Layout({ user, onLogout }: { user: User; onLogout: () => void }) {
   const nav = [
@@ -22,7 +23,8 @@ function Layout({ user, onLogout }: { user: User; onLogout: () => void }) {
     { to: '/servicos', label: 'Serviços', icon: Car },
     { to: '/orcamentos', label: 'Orçamentos/OS', icon: ClipboardList },
     { to: '/financeiro', label: 'Financeiro', icon: DollarSign },
-    { to: '/estoque', label: 'Estoque', icon: Package }
+    { to: '/estoque', label: 'Estoque', icon: Package },
+    { to: '/configuracoes', label: 'Configurações', icon: SettingsIcon }
   ];
 
   return (
@@ -61,6 +63,7 @@ function Layout({ user, onLogout }: { user: User; onLogout: () => void }) {
           <Route path="/orcamentos" element={<Quotes />} />
           <Route path="/financeiro" element={<Finance />} />
           <Route path="/estoque" element={<Stock />} />
+          <Route path="/configuracoes" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>

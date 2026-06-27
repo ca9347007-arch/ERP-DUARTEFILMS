@@ -12,6 +12,7 @@ import { auditRouter } from './modules/audit.routes.js';
 import { quotesRouter } from './modules/quotes.routes.js';
 import { reportsRouter } from './modules/reports.routes.js';
 import { stockMovementsRouter } from './modules/stockMovements.routes.js';
+import { settingsRouter } from './modules/settings.routes.js';
 import { tryRedisPing } from '../lib/redis.js';
 import { prisma } from '../lib/prisma.js';
 
@@ -41,3 +42,4 @@ apiRouter.use('/reports', reportsRouter);
 apiRouter.use('/products', productsRouter);
 apiRouter.use('/stock-movements', stockMovementsRouter);
 apiRouter.use('/audit-logs', auditRouter);
+apiRouter.use('/settings', settingsRouter);

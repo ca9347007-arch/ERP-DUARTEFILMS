@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { ClipboardList, Clock, Eye, EyeOff, Pencil, Plus, Search, Sparkles, Tag, X } from 'lucide-react';
+import { CalendarClock, ClipboardList, Clock, Eye, EyeOff, Pencil, Plus, Search, Sparkles, Tag, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, money } from '../api/client';
 import { Appointment, Service } from '../types';
@@ -22,6 +22,15 @@ const emptyForm: ServiceForm = {
   isActive: true
 };
 
+const appointmentStatusLabels: Record<string, string> = {
+  PENDING: 'Agendado',
+  CONFIRMED: 'Confirmado',
+  IN_SERVICE: 'Em atendimento',
+  FINISHED: 'Conclu�do',
+  CANCELLED: 'Cancelado',
+  NO_SHOW: 'Não compareceu'
+};
+
 function parseMoneyToCents(value: string) {
   const normalized = value.replace(/\./g, '').replace(',', '.').replace(/[^0-9.]/g, '');
   const number = Number(normalized || 0);
@@ -32,10 +41,15 @@ function priceToInput(cents: number) {
   return (cents / 100).toFixed(2).replace('.', ',');
 }
 
+function quoteCode(appointment: Appointment) {
+  const quote = appointment.quotes?.[0];
+  return quote?.code || (quote?.sequence ? String(quote.sequence).padStart(6, '0') : 'sem orçamento');
+}
+
 export function Services() {
   const navigate = useNavigate();
   const [services, setServices] = useState<Service[]>([]);
-  const [realizedServices, setRealizedServices] = useState<Appointment[]>([]);
+  const [operationalServices, setOperationalServices] = useState<Appointment[]>([]);
   const [form, setForm] = useState<ServiceForm>(emptyForm);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -47,20 +61,18 @@ export function Services() {
   async function load() {
     setLoading(true);
     try {
-      const [servicesRes, realizedRes] = await Promise.all([
+      const [servicesRes, operationalRes] = await Promise.all([
         api.get('/services'),
-        api.get('/services/realized')
+        api.get('/services/operational')
       ]);
       setServices(servicesRes.data.services);
-      setRealizedServices(realizedRes.data.realizedServices);
+      setOperationalServices(operationalRes.data.operationalServices);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   const filteredServices = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -74,14 +86,13 @@ export function Services() {
     );
   }, [services, search]);
 
+  const scheduledServices = operationalServices.filter((appointment) => !['FINISHED', 'CANCELLED', 'NO_SHOW'].includes(appointment.status));
+  const doneServices = operationalServices.filter((appointment) => appointment.status === 'FINISHED');
+  const lostServices = operationalServices.filter((appointment) => ['CANCELLED', 'NO_SHOW'].includes(appointment.status));
   const activeServices = services.filter((service) => service.isActive !== false).length;
   const publicServices = services.filter((service) => service.isPublic !== false).length;
-  const averageTicket = services.length
-    ? Math.round(services.reduce((total, service) => total + service.basePriceCents, 0) / services.length)
-    : 0;
-  const realizedTicket = realizedServices.length
-    ? Math.round(realizedServices.reduce((total, appointment) => total + appointment.service.basePriceCents, 0) / realizedServices.length)
-    : 0;
+  const averageTicket = services.length ? Math.round(services.reduce((total, service) => total + service.basePriceCents, 0) / services.length) : 0;
+  const realizedTicket = doneServices.length ? Math.round(doneServices.reduce((total, appointment) => total + appointment.service.basePriceCents, 0) / doneServices.length) : 0;
 
   function openCreateDrawer() {
     setSelectedService(null);
@@ -127,199 +138,113 @@ export function Services() {
         isActive: form.isActive
       };
 
-      if (selectedService) {
-        await api.patch(`/services/${selectedService.id}`, payload);
-      } else {
-        await api.post('/services', payload);
-      }
+      if (selectedService) await api.patch(`/services/${selectedService.id}`, payload);
+      else await api.post('/services', payload);
 
       await load();
       closeDrawer();
     } catch {
-      setError('Não foi possível salvar o serviço. Verifique nome, preço e duração.');
+      setError('Não foi poss�vel salvar o serviço. Verifique nome, pre�o e dura��o.');
     } finally {
       setSaving(false);
     }
+  }
+
+  function goToQuoteFromAppointment(appointment: Appointment) {
+    const quote = appointment.quotes?.[0];
+    if (quote) navigate(`/orcamentos?quoteId=${quote.id}`);
+    else navigate(`/orcamentos?clientId=${appointment.client.id}&serviceId=${appointment.service.id}&appointmentId=${appointment.id}`);
+  }
+
+  function renderOperationalItem(appointment: Appointment) {
+    const quote = appointment.quotes?.[0];
+    return (
+      <div className="doneServiceItem operationalServiceItem" key={appointment.id}>
+        <div>
+          <strong>{appointment.service.name}</strong>
+          <span>{appointment.client.name}{appointment.vehicle ? ` • ${appointment.vehicle.model}` : ''}</span>
+          <small>{new Date(appointment.startsAt).toLocaleString('pt-BR')} • {appointmentStatusLabels[appointment.status] ?? appointment.status}</small>
+        </div>
+        <div className="operationalQuoteActions">
+          <span className={appointment.status === 'FINISHED' ? 'statusBadge success' : ['CANCELLED', 'NO_SHOW'].includes(appointment.status) ? 'statusBadge muted' : 'statusBadge'}>{appointmentStatusLabels[appointment.status] ?? appointment.status}</span>
+          <small>Orçamento #{quoteCode(appointment)}</small>
+          <button type="button" className="ghostButton" onClick={() => goToQuoteFromAppointment(appointment)}>{quote ? 'Visualizar orçamento' : 'Gerar orçamento'}</button>
+        </div>
+      </div>
+    );
   }
 
   return (
     <section className="premiumModule servicesModule">
       <div className="pageHeader premiumPageHeader">
         <div>
-          <span className="eyebrow">Catálogo premium</span>
+          <span className="eyebrow">Cat�logo premium</span>
           <h1>Serviços</h1>
-          <p>Catálogo comercial usado no agendamento público, orçamento e ordens de serviço.</p>
+          <p>Cat�logo comercial, agenda operacional, orçamentos vinculados e histórico de serviços.</p>
         </div>
-        <button type="button" className="premiumAction" onClick={openCreateDrawer}>
-          <Plus size={18} /> Novo serviço
-        </button>
+        <button type="button" className="premiumAction" onClick={openCreateDrawer}><Plus size={18} /> Novo serviço</button>
       </div>
 
       <div className="clientStatsGrid">
-        <div className="miniMetricCard">
-          <span>Serviços cadastrados</span>
-          <strong>{services.length}</strong>
-          <small>Catálogo completo</small>
-        </div>
-        <div className="miniMetricCard">
-          <span>Ativos</span>
-          <strong>{activeServices}</strong>
-          <small>Disponíveis para operação</small>
-        </div>
-        <div className="miniMetricCard">
-          <span>Públicos</span>
-          <strong>{publicServices}</strong>
-          <small>Aparecem no agendamento</small>
-        </div>
-        <div className="miniMetricCard">
-          <span>Ticket médio base</span>
-          <strong>{money(averageTicket)}</strong>
-          <small>Média do catálogo</small>
-        </div>
+        <div className="miniMetricCard"><span>Serviços cadastrados</span><strong>{services.length}</strong><small>Cat�logo completo</small></div>
+        <div className="miniMetricCard"><span>Ativos</span><strong>{activeServices}</strong><small>Disponíveis para operação</small></div>
+        <div className="miniMetricCard"><span>Públicos</span><strong>{publicServices}</strong><small>Aparecem no agendamento</small></div>
+        <div className="miniMetricCard"><span>Ticket médio base</span><strong>{money(averageTicket)}</strong><small>M�dia do cat�logo</small></div>
       </div>
 
-      <div className="serviceDonePanel">
+      <div className="serviceDonePanel operationalPanel">
         <div>
-          <span className="eyebrow">Serviços realizados</span>
-          <h2>Histórico concluído</h2>
-          <p>Todo atendimento marcado como concluído na agenda aparece aqui como serviço realizado.</p>
+          <span className="eyebrow">Operação de serviços</span>
+          <h2>Agendados, conclu�dos e perdidos</h2>
+          <p>Todo agendamento aparece aqui com horário, cliente, status e orçamento vinculado.</p>
         </div>
-        <div className="doneMetrics">
-          <strong>{realizedServices.length}</strong>
-          <span>concluído(s)</span>
-          <small>Ticket médio realizado: {money(realizedTicket)}</small>
-        </div>
-        <div className="doneServiceList">
-          {realizedServices.slice(0, 4).map((appointment) => (
-            <div className="doneServiceItem" key={appointment.id}>
-              <strong>{appointment.service.name}</strong>
-              <span>{appointment.client.name}{appointment.vehicle ? ` • ${appointment.vehicle.model}` : ''}</span>
-              <small>{new Date(appointment.startsAt).toLocaleDateString('pt-BR')}</small>
-            </div>
-          ))}
-          {realizedServices.length === 0 ? <p>Nenhum serviço concluído ainda. Finalize um atendimento na agenda para alimentar este registro.</p> : null}
+        <div className="doneMetrics"><strong>{doneServices.length}</strong><span>conclu�do(s)</span><small>Ticket médio realizado: {money(realizedTicket)}</small></div>
+        <div className="operationMiniMetrics"><span>{scheduledServices.length} agendado(s)</span><span>{lostServices.length} cancelado/não compareceu</span></div>
+        <div className="doneServiceList operationalList">
+          {operationalServices.slice(0, 8).map(renderOperationalItem)}
+          {operationalServices.length === 0 ? <p>Nenhum atendimento registrado ainda. Quando um cliente agendar, o serviço aparecer� aqui.</p> : null}
         </div>
       </div>
 
       <div className="moduleToolbar">
-        <label className="searchField" aria-label="Pesquisar serviços">
-          <Search size={18} />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Pesquisar por nome, descrição, duração ou valor"
-          />
-        </label>
+        <label className="searchField" aria-label="Pesquisar serviços"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar por nome, descrição, dura��o ou valor" /></label>
         <span className="toolbarHint">{filteredServices.length} resultado(s)</span>
       </div>
 
       <div className="serviceGrid">
         {loading ? (
-          <div className="premiumEmptyState">
-            <Sparkles size={42} />
-            <strong>Carregando serviços...</strong>
-            <p>Buscando o catálogo comercial da DuarteFilms.</p>
-          </div>
+          <div className="premiumEmptyState"><Sparkles size={42} /><strong>Carregando serviços...</strong><p>Buscando o cat�logo comercial da DuarteFilms.</p></div>
         ) : filteredServices.length === 0 ? (
-          <div className="premiumEmptyState">
-            <Sparkles size={46} />
-            <strong>Nenhum serviço cadastrado ainda.</strong>
-            <p>Clique em <b>Novo serviço</b> para criar o catálogo usado em agenda e orçamentos.</p>
-            <button type="button" onClick={openCreateDrawer}><Plus size={18} /> Novo serviço</button>
-          </div>
-        ) : (
-          filteredServices.map((service) => (
-            <article className="serviceCard" key={service.id}>
-              <div className="serviceCardTop">
-                <div className="serviceIcon"><Tag size={20} /></div>
-                <div>
-                  <strong>{service.name}</strong>
-                  <span>{service.description || 'Sem descrição cadastrada'}</span>
-                </div>
-                <button type="button" className="iconButton" onClick={() => openEditDrawer(service)} aria-label={`Editar ${service.name}`}>
-                  <Pencil size={16} />
-                </button>
-              </div>
-
-              <div className="servicePriceBlock">
-                <span>Valor base</span>
-                <strong>{money(service.basePriceCents)}</strong>
-              </div>
-
-              <div className="serviceMetaRow">
-                <span><Clock size={15} /> {service.durationMinutes} min</span>
-                <span>{service.isPublic === false ? <EyeOff size={15} /> : <Eye size={15} />} {service.isPublic === false ? 'Interno' : 'Público'}</span>
-              </div>
-
-              <div className="serviceStatusRow">
-                <span className={service.isActive === false ? 'statusBadge muted' : 'statusBadge success'}>
-                  {service.isActive === false ? 'Inativo' : 'Ativo'}
-                </span>
-                <button
-                  type="button"
-                  className="quoteShortcutButton"
-                  onClick={() => navigate(`/orcamentos?serviceId=${service.id}`)}
-                >
-                  <ClipboardList size={16} /> Criar orçamento
-                </button>
-              </div>
-            </article>
-          ))
-        )}
+          <div className="premiumEmptyState"><Sparkles size={46} /><strong>Nenhum serviço cadastrado ainda.</strong><p>Clique em <b>Novo serviço</b> para criar o cat�logo usado em agenda e orçamentos.</p><button type="button" onClick={openCreateDrawer}><Plus size={18} /> Novo serviço</button></div>
+        ) : filteredServices.map((service) => (
+          <article className="serviceCard" key={service.id}>
+            <div className="serviceCardTop">
+              <div className="serviceIcon"><Tag size={20} /></div>
+              <div><strong>{service.name}</strong><span>{service.description || 'Sem descrição cadastrada'}</span></div>
+              <button type="button" className="iconButton" onClick={() => openEditDrawer(service)} aria-label={`Editar ${service.name}`}><Pencil size={16} /></button>
+            </div>
+            <div className="servicePriceBlock"><span>Valor base</span><strong>{money(service.basePriceCents)}</strong></div>
+            <div className="serviceMetaRow"><span><Clock size={15} /> {service.durationMinutes} min</span><span>{service.isPublic === false ? <EyeOff size={15} /> : <Eye size={15} />} {service.isPublic === false ? 'Interno' : 'Público'}</span></div>
+            <div className="serviceStatusRow">
+              <span className={service.isActive === false ? 'statusBadge muted' : 'statusBadge success'}>{service.isActive === false ? 'Inativo' : 'Ativo'}</span>
+              <button type="button" className="quoteShortcutButton" onClick={() => navigate(`/orcamentos?serviceId=${service.id}`)}><ClipboardList size={16} /> Criar orçamento</button>
+            </div>
+          </article>
+        ))}
       </div>
 
       {drawerOpen ? (
         <div className="drawerBackdrop" role="presentation" onMouseDown={closeDrawer}>
-          <aside className="sideDrawer" role="dialog" aria-modal="true" aria-label={selectedService ? 'Editar serviço' : 'Novo serviço'} onMouseDown={(event) => event.stopPropagation()}>
-            <div className="drawerHeader">
-              <div>
-                <span className="eyebrow">{selectedService ? 'Editar serviço' : 'Novo serviço'}</span>
-                <h2>{selectedService ? selectedService.name : 'Cadastrar serviço'}</h2>
-                <p>Formulário lateral para manter o catálogo limpo, moderno e operacional.</p>
-              </div>
-              <button type="button" className="iconButton" onClick={closeDrawer} aria-label="Fechar gaveta">
-                <X size={18} />
-              </button>
-            </div>
-
+          <aside className="sideDrawer serviceDrawer" role="dialog" aria-modal="true" aria-label={selectedService ? 'Editar serviço' : 'Novo serviço'} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="drawerHeader"><div><span className="eyebrow">{selectedService ? 'Editar serviço' : 'Novo serviço'}</span><h2>{selectedService ? selectedService.name : 'Cadastrar serviço'}</h2><p>Formul�rio lateral para manter o cat�logo limpo, moderno e operacional.</p></div><button type="button" className="iconButton" onClick={closeDrawer} aria-label="Fechar gaveta"><X size={18} /></button></div>
             {error ? <div className="errorBanner">{error}</div> : null}
-
             <form className="drawerForm" onSubmit={submit}>
-              <label>
-                Nome do serviço
-                <input required minLength={2} placeholder="Ex: Película automotiva premium" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-              </label>
-
-              <label>
-                Descrição
-                <textarea placeholder="Descreva o serviço, material usado, garantia e observações comerciais." value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-              </label>
-
-              <div className="drawerTwoColumns">
-                <label>
-                  Valor base em R$
-                  <input required placeholder="Ex: 350,00" value={form.priceReais} onChange={(event) => setForm({ ...form, priceReais: event.target.value })} />
-                </label>
-                <label>
-                  Duração em minutos
-                  <input required type="number" min={15} max={480} value={form.durationMinutes} onChange={(event) => setForm({ ...form, durationMinutes: event.target.value })} />
-                </label>
-              </div>
-
-              <label className="checkLine">
-                <input type="checkbox" checked={form.isPublic} onChange={(event) => setForm({ ...form, isPublic: event.target.checked })} />
-                Aparecer no agendamento público
-              </label>
-
-              <label className="checkLine">
-                <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />
-                Serviço ativo para operação
-              </label>
-
-              <div className="drawerActions">
-                <button type="button" className="ghostButton" onClick={closeDrawer} disabled={saving}>Cancelar</button>
-                <button type="submit" disabled={saving}>{saving ? 'Salvando...' : selectedService ? 'Salvar alterações' : 'Cadastrar serviço'}</button>
-              </div>
+              <label>Nome do serviço<input required minLength={2} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex: Película automotiva completa" /></label>
+              <label>Descrição<textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Descreva o serviço, material usado, garantia e observações comerciais." /></label>
+              <div className="drawerTwoColumns"><label>Valor base em R$<input required value={form.priceReais} onChange={(event) => setForm({ ...form, priceReais: event.target.value })} placeholder="350,00" /></label><label>Dura��o em minutos<input type="number" min={15} max={480} value={form.durationMinutes} onChange={(event) => setForm({ ...form, durationMinutes: event.target.value })} /></label></div>
+              <label className="checkboxLine"><input type="checkbox" checked={form.isPublic} onChange={(event) => setForm({ ...form, isPublic: event.target.checked })} /> Aparecer no agendamento público</label>
+              <label className="checkboxLine"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Serviço ativo para operação</label>
+              <div className="drawerActions"><button type="button" className="ghostButton" onClick={closeDrawer} disabled={saving}>Cancelar</button><button type="submit" disabled={saving}>{saving ? 'Salvando...' : selectedService ? 'Salvar altera��es' : 'Cadastrar serviço'}</button></div>
             </form>
           </aside>
         </div>
